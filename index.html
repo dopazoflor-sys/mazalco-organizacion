@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organización · Mazalco</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#1c1c1c;
+    --bg:#fafafa;
+    --card:#ffffff;
+    --line:#e2e2e2;
+    --muted:#8a8a8a;
+    --accent:#1c1c1c;
+    --danger:#b23b3b;
+    --backlog:#9a9a9a;
+    --review:#c98a2e;
+    --todo:#3a6fb0;
+    --inprogress:#7a4fc9;
+    --done:#3f8f5f;
+    --flor:#8a9a3c;
+    --diseno:#1e7145;
+    --galeria:#9c1b5c;
+    --varios1:#4b2e83;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:28px 20px 90px;}
+  header.top{
+    display:flex;justify-content:space-between;align-items:center;
+    border-bottom:1px solid var(--line);
+    padding-bottom:16px;margin-bottom:24px;flex-wrap:wrap;gap:10px;
+  }
+  .title{font-size:20px;font-weight:700;letter-spacing:-.01em;}
+  .title span{color:var(--muted);font-weight:500;}
+  .sos{
+    font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;
+  }
+  .sos b{color:var(--ink);}
+  .tabs{display:flex;gap:6px;margin-bottom:18px;}
+  .tab-btn{
+    padding:7px 14px;border:1px solid var(--line);background:var(--card);
+    border-radius:6px;font-size:13px;cursor:pointer;color:var(--muted);
+  }
+  .tab-btn.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  section{margin-bottom:36px;}
+  h2{font-size:15px;font-weight:700;margin:0 0 12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+
+  .new-issue-btn{
+    padding:8px 16px;border:1px solid var(--ink);background:var(--ink);color:#fff;
+    border-radius:6px;font-size:13px;cursor:pointer;margin-bottom:14px;
+  }
+
+  .issue-row{
+    display:flex;align-items:center;gap:10px;padding:10px 12px;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:8px;cursor:pointer;
+  }
+  .issue-row:hover{border-color:#c9c9c9;}
+  .issue-check{width:16px;height:16px;flex:none;}
+  .issue-title{flex:1;font-size:14px;font-weight:600;}
+  .issue-title small{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:2px;}
+  .badge{
+    font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;color:#fff;flex:none;
+  }
+  .assignees{display:flex;gap:3px;flex:none;}
+  .chip-sm{
+    width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:11px;color:#fff;font-weight:700;
+  }
+
+  .kanban{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;}
+  .kanban-col{
+    flex:0 0 200px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;
+  }
+  .kanban-col h3{
+    font-size:12px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 10px;color:var(--muted);
+    display:flex;justify-content:space-between;
+  }
+  .kanban-card{
+    background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;
+    font-size:13px;font-weight:600;margin-bottom:8px;cursor:pointer;
+  }
+  .kanban-card:hover{border-color:#c9c9c9;}
+  .kanban-card .k-assignees{display:flex;gap:3px;margin-top:6px;}
+
+  table.agenda{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  table.agenda th{
+    text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);
+    background:var(--bg);padding:9px 12px;border-bottom:1px solid var(--line);
+  }
+  table.agenda td{
+    padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top;
+  }
+  table.agenda td[contenteditable]:hover{background:#f5f5f5;cursor:text;}
+  table.agenda tr:last-child td{border-bottom:none;font-weight:700;}
+
+  .quien-sos{display:flex;flex-wrap:wrap;gap:8px;}
+  .persona-chip{
+    display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:20px;
+    border:1px solid var(--line);background:var(--card);font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .persona-chip .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  .persona-chip.selected{border-color:var(--ink);background:var(--ink);color:#fff;}
+
+  .overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;
+    padding:20px;z-index:50;
+  }
+  .overlay.open{display:flex;}
+  .modal{
+    background:#fff;border-radius:10px;padding:22px;width:100%;max-width:460px;max-height:88vh;overflow-y:auto;
+  }
+  .modal h3{margin:0 0 16px;font-size:16px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-bottom:5px;}
+  .field input[type=text], .field textarea, .field select{
+    width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:inherit;
+  }
+  .field textarea{resize:vertical;min-height:60px;}
+  .estado-opts, .asignado-opts{display:flex;flex-wrap:wrap;gap:6px;}
+  .opt-btn{
+    padding:6px 11px;border:1px solid var(--line);border-radius:16px;background:#fff;font-size:12px;cursor:pointer;
+  }
+  .opt-btn.sel{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .lt-row{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;}
+  .modal-actions{display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:8px;}
+  .btn{padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--line);background:#fff;}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .btn.danger{color:var(--danger);border-color:var(--danger);background:#fff;}
+  .links-list a{display:block;font-size:12px;color:#3a6fb0;margin-top:3px;word-break:break-all;}
+  .empty{color:var(--muted);font-size:13px;padding:16px;text-align:center;}
+  .saving{opacity:.5;pointer-events:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="title">Organización <span>· Mazalco</span></div>
+    <div class="sos">Sos: <b id="sosLabel">—</b></div>
+  </header>
+
+  <section>
+    <div class="tabs">
+      <button class="tab-btn active" id="tabLista" onclick="setView('lista')">Lista</button>
+      <button class="tab-btn" id="tabKanban" onclick="setView('kanban')">Kanban</button>
+    </div>
+    <button class="new-issue-btn" onclick="openModal()">+ Nuevo issue</button>
+
+    <div id="listaView"></div>
+    <div id="kanbanView" style="display:none"></div>
+  </section>
+
+  <section>
+    <h2>Reunión semanal</h2>
+    <table class="agenda">
+      <thead>
+        <tr><th>Estructura</th><th>Agenda</th><th>Inicio</th></tr>
+      </thead>
+      <tbody id="agendaBody"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>¿Quién sos?</h2>
+    <div class="quien-sos" id="quienSos"></div>
+  </section>
+
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3 id="modalTitle">Nuevo issue</h3>
+    <div class="field">
+      <label>Título</label>
+      <input type="text" id="fTitulo" placeholder="Título del issue">
+    </div>
+    <div class="field">
+      <label>Descripción</label>
+      <textarea id="fDesc" placeholder="Descripción"></textarea>
+    </div>
+    <div class="field">
+      <label>Links (uno por línea)</label>
+      <textarea id="fLinks" placeholder="https://..."></textarea>
+    </div>
+    <div class="field">
+      <label>Estado</label>
+      <div class="estado-opts" id="estadoOpts"></div>
+    </div>
+    <div class="field">
+      <label>Asignado</label>
+      <div class="asignado-opts" id="asignadoOpts"></div>
+    </div>
+    <div class="lt-row">
+      <input type="checkbox" id="fLongterm">
+      <label for="fLongterm">Long-term (ver más adelante)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger" id="btnEliminar" onclick="deleteIssue()" style="display:none">Eliminar</button>
+      <div style="flex:1"></div>
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" onclick="saveIssue()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://bmgdretprlxxfamoanln.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtZ2RyZXRwcmx4eGZhbW9hbmxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMjc1MDQsImV4cCI6MjEwMjgwMzUwNH0.jlJDsi5zEB2QETclpZ1f4ONooFF2XGAj_QPmzs7YH5w';
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const ESTADOS = ["Backlog","Review","Todo","In progress","Done"];
+const ESTADO_COLOR = {Backlog:"var(--backlog)",Review:"var(--review)",Todo:"var(--todo)","In progress":"var(--inprogress)",Done:"var(--done)"};
+
+const PERSONAS = [
+  {id:"flor",    nombre:"Flor",     sector:"Dirección de operaciones", color:"var(--flor)"},
+  {id:"andrea",  nombre:"Andrea",   sector:"Diseño",                   color:"var(--diseno)"},
+  {id:"agustina",nombre:"Agustina", sector:"Galería",                  color:"var(--galeria)"},
+  {id:"adolfina",nombre:"Adolfina", sector:"Varios I",                 color:"var(--varios1)"}
+];
+
+const AGENDA_DEFAULT = [
+  ["Buenas noticias","5 min","10:00"],
+  ["Estiramiento y titulares","5 min","10:05"],
+  ["Scorecard y revisión de proyectos","5 min","10:10"],
+  ["Revisión de OKRs","5 min","10:15"],
+  ["Resolución de issues","60 min","10:20"],
+  ["Cierre: · Revisión de To-Dos · Definir Cascade (equipo/clientes) · Meeting Score","5 min","11:20"],
+  ["Termina...","","11:25"]
+];
+
+let issues = [];
+let currentPersona = null;
+let editingId = null;
+let formEstado = "Backlog";
+let formAsignados = [];
+
+function personaById(id){ return PERSONAS.find(p=>p.id===id); }
+function initials(nombre){ return nombre.slice(0,2).toUpperCase(); }
+
+// ── Supabase helpers ──────────────────────────────────────────────────────────
+
+async function fetchIssues(){
+  const { data, error } = await db.from('issues').select('*').order('created_at', { ascending: true });
+  if(error){ console.error('fetchIssues', error); return []; }
+  return data || [];
+}
+
+async function upsertIssue(issue){
+  const { error } = await db.from('issues').upsert(issue, { onConflict: 'id' });
+  if(error) console.error('upsertIssue', error);
+}
+
+async function removeIssue(id){
+  const { error } = await db.from('issues').delete().eq('id', id);
+  if(error) console.error('removeIssue', error);
+}
+
+async function fetchAgenda(){
+  const { data, error } = await db.from('agenda').select('*').order('row_index', { ascending: true });
+  if(error){ console.error('fetchAgenda', error); return null; }
+  return data && data.length > 0 ? data : null;
+}
+
+async function upsertAgendaRow(row_index, estructura, agenda_col, inicio){
+  const { error } = await db.from('agenda').upsert({ row_index, estructura, agenda_col, inicio }, { onConflict: 'row_index' });
+  if(error) console.error('upsertAgendaRow', error);
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function assigneeChips(ids, size){
+  return (ids||[]).map(id=>{
+    const p = personaById(id);
+    if(!p) return "";
+    const s = size||22;
+    return `<span class="chip-sm" style="background:${p.color};width:${s}px;height:${s}px;font-size:${s*0.45}px" title="${p.nombre}">${initials(p.nombre)}</span>`;
+  }).join("");
+}
+
+function render(){
+  const lista  = document.getElementById("listaView");
+  const kanban = document.getElementById("kanbanView");
+
+  if(issues.length === 0){
+    lista.innerHTML = '<div class="empty">Sin issues todavía. Creá el primero con "+ Nuevo issue".</div>';
+  } else {
+    lista.innerHTML = "";
+    issues.forEach(iss=>{
+      const row = document.createElement("div");
+      row.className = "issue-row";
+      row.onclick = ()=>openModal(iss.id);
+      row.innerHTML = `
+        <span class="badge" style="background:${ESTADO_COLOR[iss.estado]||'#999'}">${iss.estado}</span>
+        <span class="issue-title">${iss.titulo}${iss.longterm ? ' <small>Long-term</small>' : ''}</span>
+        <span class="assignees">${assigneeChips(iss.asignados)}</span>
+      `;
+      lista.appendChild(row);
+    });
+  }
+
+  kanban.innerHTML = "";
+  const board = document.createElement("div");
+  board.className = "kanban";
+  ESTADOS.forEach(estado=>{
+    const col = document.createElement("div");
+    col.className = "kanban-col";
+    const items = issues.filter(i=>i.estado===estado);
+    col.innerHTML = `<h3>${estado} <span>${items.length}</span></h3>`;
+    items.forEach(iss=>{
+      const card = document.createElement("div");
+      card.className = "kanban-card";
+      card.onclick = ()=>openModal(iss.id);
+      card.innerHTML = `${iss.titulo}<div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
+      col.appendChild(card);
+    });
+    board.appendChild(col);
+  });
+  kanban.appendChild(board);
+}
+
+function setView(v){
+  document.getElementById("tabLista").classList.toggle("active", v==="lista");
+  document.getElementById("tabKanban").classList.toggle("active", v==="kanban");
+  document.getElementById("listaView").style.display  = v==="lista"   ? "block" : "none";
+  document.getElementById("kanbanView").style.display = v==="kanban"  ? "block" : "none";
+}
+
+// ── Agenda ────────────────────────────────────────────────────────────────────
+
+function renderAgenda(rows){
+  const body = document.getElementById("agendaBody");
+  body.innerHTML = "";
+  rows.forEach((row, idx)=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td contenteditable="true" data-r="${idx}" data-c="0">${row[0]}</td>
+      <td contenteditable="true" data-r="${idx}" data-c="1">${row[1]}</td>
+      <td contenteditable="true" data-r="${idx}" data-c="2">${row[2]}</td>
+    `;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll("td[contenteditable]").forEach(td=>{
+    td.addEventListener("blur", async ()=>{
+      const r   = +td.dataset.r;
+      const tds = [...body.querySelectorAll(`tr:nth-child(${r+1}) td`)];
+      await upsertAgendaRow(r, tds[0].textContent, tds[1].textContent, tds[2].textContent);
+    });
+  });
+}
+
+// ── Quién sos ─────────────────────────────────────────────────────────────────
+
+function renderQuienSos(){
+  const el = document.getElementById("quienSos");
+  el.innerHTML = "";
+  PERSONAS.forEach(p=>{
+    const chip = document.createElement("div");
+    chip.className = "persona-chip" + (currentPersona===p.id ? " selected" : "");
+    chip.innerHTML = `<span class="dot" style="background:${p.color}"></span>${p.nombre}`;
+    chip.onclick = ()=>{
+      currentPersona = p.id;
+      localStorage.setItem("quien-sos", p.id);
+      document.getElementById("sosLabel").textContent = p.nombre;
+      renderQuienSos();
+    };
+    el.appendChild(chip);
+  });
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
+function openModal(id){
+  editingId = id || null;
+  const issue = id ? issues.find(i=>i.id===id) : null;
+
+  document.getElementById("modalTitle").textContent = issue ? "Editar issue" : "Nuevo issue";
+  document.getElementById("fTitulo").value   = issue ? issue.titulo      : "";
+  document.getElementById("fDesc").value     = issue ? issue.descripcion : "";
+  document.getElementById("fLinks").value    = issue ? (issue.links||[]).join("\n") : "";
+  document.getElementById("fLongterm").checked = issue ? issue.longterm : false;
+  document.getElementById("btnEliminar").style.display = issue ? "inline-block" : "none";
+
+  formEstado    = issue ? issue.estado : "Backlog";
+  formAsignados = issue ? [...(issue.asignados||[])] : (currentPersona ? [currentPersona] : []);
+
+  renderEstadoOpts();
+  renderAsignadoOpts();
+  document.getElementById("overlay").classList.add("open");
+}
+
+function renderEstadoOpts(){
+  const el = document.getElementById("estadoOpts");
+  el.innerHTML = "";
+  ESTADOS.forEach(e=>{
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "opt-btn" + (formEstado===e ? " sel" : "");
+    b.textContent = e;
+    b.onclick = ()=>{ formEstado = e; renderEstadoOpts(); };
+    el.appendChild(b);
+  });
+}
+
+function renderAsignadoOpts(){
+  const el = document.getElementById("asignadoOpts");
+  el.innerHTML = "";
+  PERSONAS.forEach(p=>{
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "opt-btn" + (formAsignados.includes(p.id) ? " sel" : "");
+    b.textContent = p.nombre;
+    b.onclick = ()=>{
+      if(formAsignados.includes(p.id)) formAsignados = formAsignados.filter(x=>x!==p.id);
+      else formAsignados.push(p.id);
+      renderAsignadoOpts();
+    };
+    el.appendChild(b);
+  });
+}
+
+function closeModal(){
+  document.getElementById("overlay").classList.remove("open");
+  editingId = null;
+}
+
+async function saveIssue(){
+  const titulo = document.getElementById("fTitulo").value.trim();
+  if(!titulo){ alert("Ponele un título al issue."); return; }
+  const descripcion = document.getElementById("fDesc").value.trim();
+  const links       = document.getElementById("fLinks").value.split("\n").map(l=>l.trim()).filter(Boolean);
+  const longterm    = document.getElementById("fLongterm").checked;
+  const now         = new Date().toISOString();
+
+  const issue = {
+    id:          editingId || ("iss_" + Date.now()),
+    titulo,
+    descripcion,
+    links,
+    longterm,
+    estado:      formEstado,
+    asignados:   [...formAsignados],
+    updated_at:  now,
+    ...(editingId ? {} : { created_at: now })
+  };
+
+  await upsertIssue(issue);
+
+  if(editingId){
+    const idx = issues.findIndex(i=>i.id===editingId);
+    if(idx>=0) issues[idx] = issue;
+  } else {
+    issues.push(issue);
+  }
+
+  closeModal();
+  render();
+}
+
+async function deleteIssue(){
+  if(!editingId) return;
+  await removeIssue(editingId);
+  issues = issues.filter(i=>i.id!==editingId);
+  closeModal();
+  render();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+async function init(){
+  issues = await fetchIssues();
+
+  currentPersona = localStorage.getItem("quien-sos") || null;
+  if(currentPersona){
+    const p = personaById(currentPersona);
+    if(p) document.getElementById("sosLabel").textContent = p.nombre;
+  }
+
+  const agendaData = await fetchAgenda();
+  if(agendaData){
+    renderAgenda(agendaData.map(r=>[r.estructura, r.agenda_col, r.inicio]));
+  } else {
+    // seed defaults
+    for(let i=0; i<AGENDA_DEFAULT.length; i++){
+      await upsertAgendaRow(i, AGENDA_DEFAULT[i][0], AGENDA_DEFAULT[i][1], AGENDA_DEFAULT[i][2]);
+    }
+    renderAgenda(AGENDA_DEFAULT);
+  }
+
+  renderQuienSos();
+  render();
+}
+
+init();
+</script>
+</body>
+</html>
