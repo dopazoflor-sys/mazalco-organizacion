@@ -77,16 +77,22 @@
     font-size:11px;color:#fff;font-weight:700;
   }
 
-  .kanban{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;}
+  .kanban{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;align-items:stretch;}
   .kanban-col{
     flex:0 0 200px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;
-    transition:background .12s;
+    transition:background .12s;min-height:240px;display:flex;flex-direction:column;
   }
   .kanban-col.drag-over{background:#eef0ff;}
   .kanban-col h3{
     font-size:12px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 10px;color:var(--muted);
     display:flex;justify-content:space-between;
   }
+  .kanban-cards{flex:1;display:flex;flex-direction:column;}
+  .kanban-cards:empty{
+    display:flex;align-items:center;justify-content:center;min-height:60px;
+    border:1px dashed var(--line);border-radius:6px;
+  }
+  .kanban-cards:empty::before{content:"Soltá acá";color:var(--muted);font-size:12px;font-style:italic;}
   .kanban-card{
     background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;
     font-size:13px;font-weight:600;margin-bottom:8px;cursor:grab;
@@ -95,15 +101,20 @@
   .kanban-card.dragging{opacity:.4;}
   .kanban-card .k-assignees{display:flex;gap:3px;margin-top:6px;}
 
-  .estado-group{margin-bottom:20px;}
+  .estado-group{margin-bottom:20px;border-radius:10px;transition:background .12s;}
   .estado-group-head{
     display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;text-transform:uppercase;
     letter-spacing:.03em;color:var(--muted);margin-bottom:8px;padding:0 2px;
   }
   .estado-group-head .dot{width:8px;height:8px;border-radius:50%;flex:none;}
   .estado-group-head .count{color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;}
-  .estado-group-body{min-height:10px;border-radius:8px;transition:background .12s;}
+  .estado-group-body{min-height:56px;border-radius:8px;transition:background .12s;}
   .estado-group-body.drag-over{background:#eef0ff;}
+  .estado-group-body:empty{
+    display:flex;align-items:center;justify-content:center;
+    border:1px dashed var(--line);border-radius:8px;
+  }
+  .estado-group-body:empty::before{content:"Soltá un issue acá";color:var(--muted);font-size:12px;font-style:italic;}
   .issue-row{cursor:grab;}
   .issue-row.dragging{opacity:.4;}
 
@@ -344,18 +355,20 @@ function onDragEnd(e){
   draggedId = null;
 }
 
-function addDropHandlers(container, estado){
-  container.addEventListener("dragover", (e)=>{
+function addDropHandlers(hitArea, estado, highlightEl){
+  const target = highlightEl || hitArea;
+  hitArea.addEventListener("dragover", (e)=>{
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    container.classList.add("drag-over");
+    target.classList.add("drag-over");
   });
-  container.addEventListener("dragleave", ()=>{
-    container.classList.remove("drag-over");
+  hitArea.addEventListener("dragleave", (e)=>{
+    if(e.relatedTarget && hitArea.contains(e.relatedTarget)) return;
+    target.classList.remove("drag-over");
   });
-  container.addEventListener("drop", (e)=>{
+  hitArea.addEventListener("drop", (e)=>{
     e.preventDefault();
-    container.classList.remove("drag-over");
+    target.classList.remove("drag-over");
     const id = draggedId || e.dataTransfer.getData("text/plain");
     if(id) moveIssueToEstado(id, estado);
   });
@@ -389,7 +402,6 @@ function render(){
 
       const body = document.createElement("div");
       body.className = "estado-group-body";
-      addDropHandlers(body, estado);
 
       items.forEach(iss=>{
         const row = document.createElement("div");
@@ -408,6 +420,7 @@ function render(){
       });
 
       group.appendChild(body);
+      addDropHandlers(group, estado, body);
       lista.appendChild(group);
     });
   }
@@ -418,11 +431,12 @@ function render(){
   ESTADOS.forEach(estado=>{
     const col = document.createElement("div");
     col.className = "kanban-col";
-    addDropHandlers(col, estado);
     const items = issues.filter(i=>i.estado===estado);
     const h3 = document.createElement("h3");
     h3.innerHTML = `${estado} <span>${items.length}</span>`;
     col.appendChild(h3);
+    const cards = document.createElement("div");
+    cards.className = "kanban-cards";
     items.forEach(iss=>{
       const card = document.createElement("div");
       card.className = "kanban-card";
@@ -432,8 +446,10 @@ function render(){
       card.addEventListener("dragstart", onDragStart);
       card.addEventListener("dragend", onDragEnd);
       card.innerHTML = `${iss.titulo}<div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
-      col.appendChild(card);
+      cards.appendChild(card);
     });
+    col.appendChild(cards);
+    addDropHandlers(col, estado);
     board.appendChild(col);
   });
   kanban.appendChild(board);
