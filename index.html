@@ -39,7 +39,6 @@
     padding-bottom:16px;margin-bottom:24px;flex-wrap:wrap;gap:10px;
   }
   .title{font-size:20px;font-weight:700;letter-spacing:-.01em;}
-  .title span{color:var(--muted);font-weight:500;}
   .sos{
     font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;
   }
@@ -105,16 +104,19 @@
   .issue-row{cursor:grab;}
   .issue-row.dragging{opacity:.4;}
 
-  .section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
-  .section-head h2{margin:0;}
-  .sq-toggle{
-    width:30px;height:30px;flex:none;border:1px solid var(--line);background:var(--card);
-    border-radius:6px;cursor:pointer;font-size:14px;color:var(--muted);
+  .header-right{display:flex;align-items:center;gap:10px;}
+  .badge-btn{
+    width:32px;height:32px;flex:none;border:1px solid var(--line);background:var(--card);
+    border-radius:50%;cursor:pointer;font-size:15px;color:var(--muted);
     display:flex;align-items:center;justify-content:center;
   }
-  .sq-toggle:hover{border-color:#c9c9c9;}
-  .sq-toggle.active{background:var(--ink);color:#fff;border-color:var(--ink);}
-  .agenda-panel{margin-top:2px;}
+  .badge-btn:hover{border-color:#c9c9c9;color:var(--ink);}
+  .sos{cursor:pointer;}
+  .sos:hover b{text-decoration:underline;}
+
+  .issues-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+  .issues-head .new-issue-btn{margin-bottom:0;}
+  .issues-head .tabs{margin-bottom:0;}
 
   table.agenda{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;}
   table.agenda th{
@@ -169,41 +171,48 @@
 <div class="wrap">
 
   <header class="top">
-    <div class="title">Organización <span>· Mazalco</span></div>
-    <div class="sos">Sos: <b id="sosLabel">—</b></div>
+    <div class="title">Mazalco</div>
+    <div class="header-right">
+      <button class="badge-btn" id="agendaBadgeBtn" onclick="openAgendaPopup()" title="Reunión semanal" aria-label="Reunión semanal">🛡️</button>
+      <div class="sos" onclick="openPersonaPicker()" title="Cambiar quién sos">Sos: <b id="sosLabel">—</b></div>
+    </div>
   </header>
 
   <section>
-    <div class="tabs">
-      <button class="tab-btn active" id="tabLista" onclick="setView('lista')">Lista</button>
-      <button class="tab-btn" id="tabKanban" onclick="setView('kanban')">Kanban</button>
+    <div class="issues-head">
+      <button class="new-issue-btn" onclick="openModal()">+ Nuevo issue</button>
+      <div class="tabs">
+        <button class="tab-btn active" id="tabLista" onclick="setView('lista')">Lista</button>
+        <button class="tab-btn" id="tabKanban" onclick="setView('kanban')">Kanban</button>
+      </div>
     </div>
-    <button class="new-issue-btn" onclick="openModal()">+ Nuevo issue</button>
 
     <div id="listaView"></div>
     <div id="kanbanView" style="display:none"></div>
   </section>
 
-  <section>
-    <div class="section-head">
-      <h2>Reunión semanal</h2>
-      <button class="sq-toggle" id="agendaToggle" onclick="toggleAgenda()" title="Mostrar/ocultar estructura" aria-label="Mostrar/ocultar estructura">▦</button>
-    </div>
-    <div class="agenda-panel" id="agendaPanel" style="display:none">
-      <table class="agenda">
-        <thead>
-          <tr><th>Estructura</th><th>Agenda</th><th>Inicio</th></tr>
-        </thead>
-        <tbody id="agendaBody"></tbody>
-      </table>
-    </div>
-  </section>
+</div>
 
-  <section>
-    <h2>¿Quién sos?</h2>
-    <div class="quien-sos" id="quienSos"></div>
-  </section>
+<div class="overlay" id="agendaOverlay">
+  <div class="modal">
+    <h3>Reunión semanal</h3>
+    <table class="agenda">
+      <thead>
+        <tr><th>Estructura</th><th>Agenda</th><th>Inicio</th></tr>
+      </thead>
+      <tbody id="agendaBody"></tbody>
+    </table>
+    <div class="modal-actions" style="justify-content:flex-end">
+      <button class="btn" onclick="closeAgendaPopup()">Cerrar</button>
+    </div>
+  </div>
+</div>
 
+<div class="overlay" id="personaOverlay">
+  <div class="modal">
+    <h3>¿Quién sos?</h3>
+    <div class="quien-sos" id="quienSosPicker"></div>
+  </div>
 </div>
 
 <div class="overlay" id="overlay">
@@ -436,12 +445,12 @@ function setView(v){
 
 // ── Agenda ────────────────────────────────────────────────────────────────────
 
-let agendaOpen = false;
+function openAgendaPopup(){
+  document.getElementById("agendaOverlay").classList.add("open");
+}
 
-function toggleAgenda(){
-  agendaOpen = !agendaOpen;
-  document.getElementById("agendaPanel").style.display = agendaOpen ? "block" : "none";
-  document.getElementById("agendaToggle").classList.toggle("active", agendaOpen);
+function closeAgendaPopup(){
+  document.getElementById("agendaOverlay").classList.remove("open");
 }
 
 function renderAgenda(rows){
@@ -468,7 +477,7 @@ function renderAgenda(rows){
 // ── Quién sos ─────────────────────────────────────────────────────────────────
 
 function renderQuienSos(){
-  const el = document.getElementById("quienSos");
+  const el = document.getElementById("quienSosPicker");
   el.innerHTML = "";
   PERSONAS.forEach(p=>{
     const chip = document.createElement("div");
@@ -479,9 +488,18 @@ function renderQuienSos(){
       localStorage.setItem("quien-sos", p.id);
       document.getElementById("sosLabel").textContent = p.nombre;
       renderQuienSos();
+      closePersonaPicker();
     };
     el.appendChild(chip);
   });
+}
+
+function openPersonaPicker(){
+  document.getElementById("personaOverlay").classList.add("open");
+}
+
+function closePersonaPicker(){
+  document.getElementById("personaOverlay").classList.remove("open");
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
@@ -587,9 +605,12 @@ async function init(){
   issues = await fetchIssues();
 
   currentPersona = localStorage.getItem("quien-sos") || null;
+  renderQuienSos();
   if(currentPersona){
     const p = personaById(currentPersona);
     if(p) document.getElementById("sosLabel").textContent = p.nombre;
+  } else {
+    openPersonaPicker();
   }
 
   const agendaData = await fetchAgenda();
@@ -603,7 +624,6 @@ async function init(){
     renderAgenda(AGENDA_DEFAULT);
   }
 
-  renderQuienSos();
   render();
 }
 
