@@ -132,6 +132,15 @@
   .issues-head .new-issue-btn{margin-bottom:0;}
   .issues-head .tabs{margin-bottom:0;}
 
+  .bulk-bar{
+    display:flex;align-items:center;gap:14px;padding:9px 12px;margin-bottom:12px;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:13px;flex-wrap:wrap;
+  }
+  .bulk-all{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted);white-space:nowrap;}
+  .bulk-count{color:var(--muted);white-space:nowrap;}
+  .bulk-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;}
+  .bulk-actions .btn:disabled{opacity:.4;cursor:not-allowed;}
+
   table.agenda{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;}
   table.agenda th{
     text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);
@@ -198,6 +207,19 @@
       <div class="tabs">
         <button class="tab-btn active" id="tabLista" onclick="setView('lista')">Lista</button>
         <button class="tab-btn" id="tabKanban" onclick="setView('kanban')">Kanban</button>
+      </div>
+    </div>
+
+    <div class="bulk-bar" id="bulkBar" style="display:none">
+      <label class="bulk-all">
+        <input type="checkbox" id="selectAllChk" onchange="toggleSelectAll(this.checked)">
+        Seleccionar todos
+      </label>
+      <span class="bulk-count" id="bulkCount"></span>
+      <div class="bulk-actions">
+        <button class="btn" id="btnBulkLongterm" onclick="bulkLongterm()">Long-term</button>
+        <button class="btn" id="btnBulkMerge" onclick="bulkMerge()">Fusionar</button>
+        <button class="btn danger" id="btnBulkDelete" onclick="bulkDelete()">Eliminar</button>
       </div>
     </div>
 
@@ -297,6 +319,8 @@ let currentPersona = null;
 let editingId = null;
 let formEstado = "Backlog";
 let formAsignados = [];
+let currentView = "lista";
+let selectedIds = new Set();
 
 function personaById(id){ return PERSONAS.find(p=>p.id===id); }
 function initials(nombre){ return nombre.slice(0,2).toUpperCase(); }
@@ -412,10 +436,14 @@ function render(){
         row.addEventListener("dragstart", onDragStart);
         row.addEventListener("dragend", onDragEnd);
         row.innerHTML = `
+          <input type="checkbox" class="issue-check" ${selectedIds.has(iss.id) ? "checked" : ""}>
           <span class="badge" style="background:${ESTADO_COLOR[iss.estado]||'#999'}">${iss.estado}</span>
           <span class="issue-title">${iss.titulo}${iss.longterm ? ' <small>Long-term</small>' : ''}</span>
           <span class="assignees">${assigneeChips(iss.asignados)}</span>
         `;
+        const chk = row.querySelector(".issue-check");
+        chk.onclick = (e)=>e.stopPropagation();
+        chk.onchange = ()=>toggleSelect(iss.id, chk.checked);
         body.appendChild(row);
       });
 
@@ -453,13 +481,105 @@ function render(){
     board.appendChild(col);
   });
   kanban.appendChild(board);
+
+  renderBulkBar();
 }
 
 function setView(v){
+  currentView = v;
   document.getElementById("tabLista").classList.toggle("active", v==="lista");
   document.getElementById("tabKanban").classList.toggle("active", v==="kanban");
   document.getElementById("listaView").style.display  = v==="lista"   ? "block" : "none";
   document.getElementById("kanbanView").style.display = v==="kanban"  ? "block" : "none";
+  renderBulkBar();
+}
+
+// ── Selección múltiple ──────────────────────────────────────────────────────────
+
+function toggleSelect(id, checked){
+  if(checked) selectedIds.add(id); else selectedIds.delete(id);
+  render();
+}
+
+function toggleSelectAll(checked){
+  if(checked) issues.forEach(i=>selectedIds.add(i.id));
+  else selectedIds.clear();
+  render();
+}
+
+function renderBulkBar(){
+  const bar = document.getElementById("bulkBar");
+  if(currentView !== "lista" || issues.length === 0){
+    bar.style.display = "none";
+    return;
+  }
+  bar.style.display = "flex";
+
+  const total    = issues.length;
+  const selected = [...selectedIds].filter(id=>issues.some(i=>i.id===id));
+  if(selected.length !== selectedIds.size){
+    selectedIds = new Set(selected);
+  }
+  const n = selected.length;
+
+  const allChk = document.getElementById("selectAllChk");
+  allChk.checked       = n>0 && n===total;
+  allChk.indeterminate = n>0 && n<total;
+
+  document.getElementById("bulkCount").textContent = n>0 ? `${n} seleccionado${n>1?"s":""}` : "";
+
+  document.getElementById("btnBulkLongterm").disabled = n===0;
+  document.getElementById("btnBulkDelete").disabled    = n===0;
+  document.getElementById("btnBulkMerge").disabled     = n<2;
+}
+
+async function bulkLongterm(){
+  const ids = [...selectedIds];
+  if(ids.length===0) return;
+  const now = new Date().toISOString();
+  ids.forEach(id=>{
+    const idx = issues.findIndex(i=>i.id===id);
+    if(idx>=0) issues[idx] = { ...issues[idx], longterm:true, updated_at:now };
+  });
+  render();
+  await Promise.all(ids.map(id=>upsertIssue(issues.find(i=>i.id===id))));
+}
+
+async function bulkDelete(){
+  const ids = [...selectedIds];
+  if(ids.length===0) return;
+  if(!confirm(`¿Eliminar ${ids.length} issue${ids.length>1?"s":""}?`)) return;
+  selectedIds.clear();
+  issues = issues.filter(i=>!ids.includes(i.id));
+  render();
+  await Promise.all(ids.map(id=>removeIssue(id)));
+}
+
+async function bulkMerge(){
+  const ids = [...selectedIds];
+  if(ids.length<2) return;
+  const selected = issues.filter(i=>ids.includes(i.id));
+  const now = new Date().toISOString();
+
+  const merged = {
+    id:          "iss_" + Date.now(),
+    titulo:      selected.map(i=>i.titulo).join(" + "),
+    descripcion: selected.map(i=>i.descripcion).filter(Boolean).join("\n\n---\n\n"),
+    links:       [...new Set(selected.flatMap(i=>i.links||[]))],
+    longterm:    selected.some(i=>i.longterm),
+    estado:      selected[0].estado,
+    asignados:   [...new Set(selected.flatMap(i=>i.asignados||[]))],
+    created_at:  now,
+    updated_at:  now
+  };
+
+  selectedIds.clear();
+  issues = issues.filter(i=>!ids.includes(i.id));
+  issues.push(merged);
+  render();
+
+  await Promise.all(ids.map(id=>removeIssue(id)));
+  await upsertIssue(merged);
 }
 
 // ── Agenda ────────────────────────────────────────────────────────────────────
@@ -614,6 +734,7 @@ async function deleteIssue(){
   if(!editingId) return;
   await removeIssue(editingId);
   issues = issues.filter(i=>i.id!==editingId);
+  selectedIds.delete(editingId);
   closeModal();
   render();
 }
