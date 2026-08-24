@@ -406,6 +406,17 @@ function subissueProgress(iss){
   return `<span class="subissue-count" title="Subissues">${done}/${subs.length}</span>`;
 }
 
+function personaSortIndex(iss){
+  const id = (iss.asignados && iss.asignados[0]) || null;
+  if(!id) return PERSONAS.length;
+  const idx = PERSONAS.findIndex(p=>p.id===id);
+  return idx === -1 ? PERSONAS.length : idx;
+}
+
+function sortByPersona(items){
+  return [...items].sort((a,b)=>personaSortIndex(a)-personaSortIndex(b));
+}
+
 let draggedId = null;
 
 function onDragStart(e){
@@ -456,7 +467,7 @@ function render(){
     lista.innerHTML = '<div class="empty">Sin issues todavía. Creá el primero con "+ Nuevo issue".</div>';
   } else {
     ESTADOS.forEach(estado=>{
-      const items = issues.filter(i=>i.estado===estado);
+      const items = sortByPersona(issues.filter(i=>i.estado===estado));
       const group = document.createElement("div");
       group.className = "estado-group";
 
@@ -501,7 +512,7 @@ function render(){
   ESTADOS.forEach(estado=>{
     const col = document.createElement("div");
     col.className = "kanban-col";
-    const items = issues.filter(i=>i.estado===estado);
+    const items = sortByPersona(issues.filter(i=>i.estado===estado));
     const h3 = document.createElement("h3");
     h3.innerHTML = `${estado} <span>${items.length}</span>`;
     col.appendChild(h3);
