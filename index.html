@@ -180,6 +180,30 @@
     padding:6px 11px;border:1px solid var(--line);border-radius:16px;background:#fff;font-size:12px;cursor:pointer;
   }
   .opt-btn.sel{background:var(--brand);color:#fff;border-color:var(--brand);}
+
+  .subissues-list{margin-bottom:8px;}
+  .subissue-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);}
+  .subissue-row:last-child{border-bottom:none;}
+  .subissue-titulo{flex:1;font-size:13px;}
+  .subissue-estado{
+    font-size:11px;font-weight:600;color:#fff;border:none;border-radius:20px;padding:4px 8px;
+    cursor:pointer;flex:none;
+  }
+  .subissue-del{
+    background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:0 2px;flex:none;
+  }
+  .subissue-del:hover{color:var(--danger);}
+  .subissue-add-row{display:flex;gap:6px;margin-top:6px;}
+  .subissue-add-row input{
+    flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:inherit;
+  }
+  .subissue-add-row .btn{padding:7px 12px;}
+  .subissue-empty{color:var(--muted);font-size:12px;font-style:italic;padding:4px 0;}
+  .subissue-count{
+    font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--line);
+    border-radius:10px;padding:1px 7px;flex:none;
+  }
+
   .lt-row{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;}
   .modal-actions{display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:8px;}
   .btn{padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--line);background:#fff;}
@@ -274,6 +298,14 @@
       <label>Asignado</label>
       <div class="asignado-opts" id="asignadoOpts"></div>
     </div>
+    <div class="field">
+      <label>Subissues</label>
+      <div class="subissues-list" id="subissuesList"></div>
+      <div class="subissue-add-row">
+        <input type="text" id="fSubissueTitulo" placeholder="Nueva subissue..." onkeydown="if(event.key==='Enter'){event.preventDefault();addSubissue();}">
+        <button type="button" class="btn" onclick="addSubissue()">+ Agregar</button>
+      </div>
+    </div>
     <div class="lt-row">
       <input type="checkbox" id="fLongterm">
       <label for="fLongterm">Long-term (ver más adelante)</label>
@@ -318,6 +350,7 @@ let currentPersona = null;
 let editingId = null;
 let formEstado = "Backlog";
 let formAsignados = [];
+let formSubissues = [];
 let currentView = "lista";
 let selectedIds = new Set();
 
@@ -362,6 +395,13 @@ function assigneeChips(ids, size){
     const s = size||22;
     return `<span class="chip-sm" style="background:${p.color};width:${s}px;height:${s}px;font-size:${s*0.45}px" title="${p.nombre}">${initials(p.nombre)}</span>`;
   }).join("");
+}
+
+function subissueProgress(iss){
+  const subs = iss.subissues || [];
+  if(subs.length === 0) return "";
+  const done = subs.filter(s=>s.estado === "Done").length;
+  return `<span class="subissue-count" title="Subissues">${done}/${subs.length}</span>`;
 }
 
 let draggedId = null;
@@ -438,6 +478,7 @@ function render(){
           <input type="checkbox" class="issue-check" ${selectedIds.has(iss.id) ? "checked" : ""}>
           <span class="badge" style="background:${ESTADO_COLOR[iss.estado]||'#999'}">${iss.estado}</span>
           <span class="issue-title">${iss.titulo}${iss.longterm ? ' <small>Long-term</small>' : ''}</span>
+          ${subissueProgress(iss)}
           <span class="assignees">${assigneeChips(iss.asignados)}</span>
         `;
         const chk = row.querySelector(".issue-check");
@@ -472,7 +513,7 @@ function render(){
       card.onclick = ()=>openModal(iss.id);
       card.addEventListener("dragstart", onDragStart);
       card.addEventListener("dragend", onDragEnd);
-      card.innerHTML = `${iss.titulo}<div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
+      card.innerHTML = `${iss.titulo} ${subissueProgress(iss)}<div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
       cards.appendChild(card);
     });
     col.appendChild(cards);
@@ -655,9 +696,11 @@ function openModal(id){
 
   formEstado    = issue ? issue.estado : "Backlog";
   formAsignados = issue ? [...(issue.asignados||[])] : (currentPersona ? [currentPersona] : []);
+  formSubissues = issue ? (issue.subissues||[]).map(s=>({...s})) : [];
 
   renderEstadoOpts();
   renderAsignadoOpts();
+  renderSubissues();
   document.getElementById("overlay").classList.add("open");
 }
 
@@ -691,6 +734,66 @@ function renderAsignadoOpts(){
   });
 }
 
+function renderSubissues(){
+  const el = document.getElementById("subissuesList");
+  el.innerHTML = "";
+  if(formSubissues.length === 0){
+    el.innerHTML = '<div class="subissue-empty">Sin subissues.</div>';
+    return;
+  }
+  formSubissues.forEach(sub=>{
+    const row = document.createElement("div");
+    row.className = "subissue-row";
+
+    const select = document.createElement("select");
+    select.className = "subissue-estado";
+    select.style.background = ESTADO_COLOR[sub.estado] || "#999";
+    ESTADOS.forEach(e=>{
+      const opt = document.createElement("option");
+      opt.value = e;
+      opt.textContent = e;
+      if(e === sub.estado) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.onchange = ()=>{
+      sub.estado = select.value;
+      select.style.background = ESTADO_COLOR[sub.estado] || "#999";
+    };
+
+    const titulo = document.createElement("span");
+    titulo.className = "subissue-titulo";
+    titulo.textContent = sub.titulo;
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "subissue-del";
+    del.textContent = "×";
+    del.onclick = ()=>{
+      formSubissues = formSubissues.filter(s=>s.id !== sub.id);
+      renderSubissues();
+    };
+
+    row.appendChild(select);
+    row.appendChild(titulo);
+    row.appendChild(del);
+    el.appendChild(row);
+  });
+}
+
+function addSubissue(){
+  const input = document.getElementById("fSubissueTitulo");
+  const titulo = input.value.trim();
+  if(!titulo) return;
+  formSubissues.push({
+    id: "sub_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+    titulo,
+    estado: "Todo"
+  });
+  input.value = "";
+  renderSubissues();
+  input.focus();
+}
+
 function closeModal(){
   document.getElementById("overlay").classList.remove("open");
   editingId = null;
@@ -712,6 +815,7 @@ async function saveIssue(){
     longterm,
     estado:      formEstado,
     asignados:   [...formAsignados],
+    subissues:   formSubissues.map(s=>({...s})),
     updated_at:  now,
     ...(editingId ? {} : { created_at: now })
   };
