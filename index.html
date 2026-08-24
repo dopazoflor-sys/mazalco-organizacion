@@ -182,12 +182,14 @@
   .opt-btn.sel{background:var(--brand);color:#fff;border-color:var(--brand);}
 
   .subissues-list{margin-bottom:8px;}
-  .subissue-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);}
+  .subissue-row{padding:8px 0;border-bottom:1px solid var(--line);}
   .subissue-row:last-child{border-bottom:none;}
-  .subissue-titulo{flex:1;font-size:13px;}
-  .subissue-estado{
-    font-size:11px;font-weight:600;color:#fff;border:none;border-radius:20px;padding:4px 8px;
-    cursor:pointer;flex:none;
+  .subissue-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:7px;}
+  .subissue-titulo{flex:1;font-size:13px;font-weight:600;color:var(--ink);word-break:break-word;}
+  .subissue-row .subissue-estado{
+    width:auto;display:inline-block;
+    font-size:11px;font-weight:600;color:#fff;border:none;border-radius:20px;padding:4px 10px;
+    cursor:pointer;
   }
   .subissue-del{
     background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:0 2px;flex:none;
@@ -745,6 +747,25 @@ function renderSubissues(){
     const row = document.createElement("div");
     row.className = "subissue-row";
 
+    const top = document.createElement("div");
+    top.className = "subissue-top";
+
+    const titulo = document.createElement("span");
+    titulo.className = "subissue-titulo";
+    titulo.textContent = sub.titulo;
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "subissue-del";
+    del.textContent = "×";
+    del.onclick = ()=>{
+      formSubissues = formSubissues.filter(s=>s.id !== sub.id);
+      renderSubissues();
+    };
+
+    top.appendChild(titulo);
+    top.appendChild(del);
+
     const select = document.createElement("select");
     select.className = "subissue-estado";
     select.style.background = ESTADO_COLOR[sub.estado] || "#999";
@@ -760,22 +781,8 @@ function renderSubissues(){
       select.style.background = ESTADO_COLOR[sub.estado] || "#999";
     };
 
-    const titulo = document.createElement("span");
-    titulo.className = "subissue-titulo";
-    titulo.textContent = sub.titulo;
-
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "subissue-del";
-    del.textContent = "×";
-    del.onclick = ()=>{
-      formSubissues = formSubissues.filter(s=>s.id !== sub.id);
-      renderSubissues();
-    };
-
+    row.appendChild(top);
     row.appendChild(select);
-    row.appendChild(titulo);
-    row.appendChild(del);
     el.appendChild(row);
   });
 }
