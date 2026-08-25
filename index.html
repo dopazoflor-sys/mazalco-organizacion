@@ -182,9 +182,12 @@
   .opt-btn.sel{background:var(--brand);color:#fff;border-color:var(--brand);}
 
   .subissues-list{margin-bottom:8px;}
-  .subissue-row{padding:8px 0;border-bottom:1px solid var(--line);}
+  .subissue-row{padding:8px 0;border-bottom:1px solid var(--line);border-radius:6px;transition:background .12s;cursor:grab;}
   .subissue-row:last-child{border-bottom:none;}
+  .subissue-row.dragging{opacity:.4;}
+  .subissue-row.drag-over{background:#f0f0f0;}
   .subissue-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:7px;}
+  .subissue-grip{flex:none;color:var(--muted);font-size:13px;line-height:1;padding-top:1px;user-select:none;}
   .subissue-titulo{flex:1;font-size:13px;font-weight:600;color:var(--ink);word-break:break-word;}
   .subissue-row .subissue-estado{
     width:auto;display:inline-block;
@@ -747,6 +750,8 @@ function renderAsignadoOpts(){
   });
 }
 
+let draggedSubIndex = null;
+
 function renderSubissues(){
   const el = document.getElementById("subissuesList");
   el.innerHTML = "";
@@ -754,12 +759,47 @@ function renderSubissues(){
     el.innerHTML = '<div class="subissue-empty">Sin subissues.</div>';
     return;
   }
-  formSubissues.forEach(sub=>{
+  formSubissues.forEach((sub, idx)=>{
     const row = document.createElement("div");
     row.className = "subissue-row";
+    row.draggable = true;
+
+    row.addEventListener("dragstart", (e)=>{
+      draggedSubIndex = idx;
+      row.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(idx));
+    });
+    row.addEventListener("dragend", ()=>{
+      row.classList.remove("dragging");
+      draggedSubIndex = null;
+    });
+    row.addEventListener("dragover", (e)=>{
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      row.classList.add("drag-over");
+    });
+    row.addEventListener("dragleave", (e)=>{
+      if(e.relatedTarget && row.contains(e.relatedTarget)) return;
+      row.classList.remove("drag-over");
+    });
+    row.addEventListener("drop", (e)=>{
+      e.preventDefault();
+      row.classList.remove("drag-over");
+      if(draggedSubIndex === null || draggedSubIndex === idx) return;
+      const [moved] = formSubissues.splice(draggedSubIndex, 1);
+      const target = draggedSubIndex < idx ? idx - 1 : idx;
+      formSubissues.splice(target, 0, moved);
+      renderSubissues();
+    });
 
     const top = document.createElement("div");
     top.className = "subissue-top";
+
+    const grip = document.createElement("span");
+    grip.className = "subissue-grip";
+    grip.textContent = "⠿";
+    grip.title = "Arrastrá para reordenar";
 
     const titulo = document.createElement("span");
     titulo.className = "subissue-titulo";
@@ -774,6 +814,7 @@ function renderSubissues(){
       renderSubissues();
     };
 
+    top.appendChild(grip);
     top.appendChild(titulo);
     top.appendChild(del);
 
