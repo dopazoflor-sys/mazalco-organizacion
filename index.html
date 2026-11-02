@@ -27,6 +27,7 @@
     --galeria:#b01b63;
     --varios1:#4b3f9c;
     --mina:#c2591e;
+    --urgent:#e8a317;
   }
   *{box-sizing:border-box;}
   body{
@@ -118,6 +119,19 @@
   .estado-group-body:empty::before{content:"Soltá un issue acá";color:var(--muted);font-size:12px;font-style:italic;}
   .issue-row{cursor:grab;}
   .issue-row.dragging{opacity:.4;}
+  .issue-row.drop-before, .kanban-card.drop-before{box-shadow:0 -2px 0 0 var(--brand);}
+  .issue-row.drop-after,  .kanban-card.drop-after{box-shadow:0 2px 0 0 var(--brand);}
+
+  .prio{width:16px;height:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;color:#5b5b5b;}
+  .prio svg{display:block;}
+  .prio .off{opacity:.22;}
+  .prio-urgent{background:var(--urgent);color:#fff;border-radius:4px;font-size:11px;font-weight:800;line-height:1;}
+  .kanban-card .k-head{display:flex;align-items:flex-start;gap:7px;}
+  .kanban-card .k-head .prio{margin-top:1px;}
+  .prio-opts{display:flex;flex-wrap:wrap;gap:6px;}
+  .prio-opts .opt-btn{display:inline-flex;align-items:center;gap:6px;}
+  .prio-opts .opt-btn.sel .prio{color:#fff;}
+  .prio-opts .opt-btn.sel .prio-urgent{box-shadow:0 0 0 1px #fff;}
 
   .header-right{display:flex;align-items:center;gap:10px;}
   .badge-btn{
@@ -301,6 +315,10 @@
       <div class="estado-opts" id="estadoOpts"></div>
     </div>
     <div class="field">
+      <label>Prioridad</label>
+      <div class="prio-opts" id="prioridadOpts"></div>
+    </div>
+    <div class="field">
       <label>Asignado</label>
       <div class="asignado-opts" id="asignadoOpts"></div>
     </div>
@@ -343,6 +361,14 @@ const PERSONAS = [
   {id:"mina",    nombre:"Mina",     sector:"",                         color:"var(--mina)"}
 ];
 
+const PRIORIDADES = [
+  {id:"urgent", nombre:"Urgent"},
+  {id:"high",   nombre:"High"},
+  {id:"medium", nombre:"Medium"},
+  {id:"low",    nombre:"Low"}
+];
+const PRIORIDAD_BARS = {high:3, medium:2, low:1};
+
 const AGENDA_DEFAULT = [
   ["Buenas noticias","5 min","10:00"],
   ["Novedades de Sybilla","5 min","10:05"],
@@ -357,6 +383,7 @@ let currentPersona = null;
 let editingId = null;
 let formEstado = "Backlog";
 let formAsignados = [];
+let formPrioridad = null;
 let formSubissues = [];
 let currentView = "lista";
 let selectedIds = new Set();
@@ -411,15 +438,35 @@ function subissueProgress(iss){
   return `<span class="subissue-count" title="Subissues">${done}/${subs.length}</span>`;
 }
 
-function personaSortIndex(iss){
-  const id = (iss.asignados && iss.asignados[0]) || null;
-  if(!id) return PERSONAS.length;
-  const idx = PERSONAS.findIndex(p=>p.id===id);
-  return idx === -1 ? PERSONAS.length : idx;
+function prioridadRank(p){
+  const idx = PRIORIDADES.findIndex(x=>x.id===p);
+  return idx === -1 ? PRIORIDADES.length : idx;
 }
 
-function sortByPersona(items){
-  return [...items].sort((a,b)=>personaSortIndex(a)-personaSortIndex(b));
+function prioridadIcon(p){
+  const pr = PRIORIDADES.find(x=>x.id===p);
+  if(p === "urgent") return `<span class="prio prio-urgent" title="Urgent">!</span>`;
+  const n = PRIORIDAD_BARS[p] || 0;
+  if(!n){
+    return `<span class="prio" title="Sin prioridad"><svg width="14" height="14" viewBox="0 0 14 14">
+      <rect x="1" y="6.25" width="3" height="1.5" rx=".75" fill="currentColor" class="off"/>
+      <rect x="5.5" y="6.25" width="3" height="1.5" rx=".75" fill="currentColor" class="off"/>
+      <rect x="10" y="6.25" width="3" height="1.5" rx=".75" fill="currentColor" class="off"/></svg></span>`;
+  }
+  const bars = [6,9,12].map((h,i)=>
+    `<rect x="${1+i*4.5}" y="${13-h}" width="3" height="${h}" rx="1" fill="currentColor" class="${i<n?"":"off"}"/>`
+  ).join("");
+  return `<span class="prio" title="${pr.nombre}"><svg width="14" height="14" viewBox="0 0 14 14">${bars}</svg></span>`;
+}
+
+// Orden dentro de cada estado: prioridad primero, después el orden manual (drag & drop)
+function sortIssues(items){
+  const big = Number.MAX_SAFE_INTEGER;
+  return [...items].sort((a,b)=>
+    prioridadRank(a.prioridad) - prioridadRank(b.prioridad) ||
+    (a.orden ?? big) - (b.orden ?? big) ||
+    String(a.created_at||"").localeCompare(String(b.created_at||""))
+  );
 }
 
 let draggedId = null;
@@ -434,12 +481,64 @@ function onDragStart(e){
 function onDragEnd(e){
   e.currentTarget.classList.remove("dragging");
   draggedId = null;
+  clearDropLines();
+  document.querySelectorAll(".drag-over").forEach(el=>el.classList.remove("drag-over"));
+}
+
+function clearDropLines(){
+  document.querySelectorAll(".drop-before,.drop-after").forEach(el=>el.classList.remove("drop-before","drop-after"));
+}
+
+// Soltar sobre otro issue: lo ubica antes/después de ese y toma su prioridad
+function addItemDropHandlers(el, estado){
+  el.addEventListener("dragover", (e)=>{
+    if(!draggedId || draggedId === el.dataset.id) return;
+    e.preventDefault();
+    const r = el.getBoundingClientRect();
+    const after = e.clientY > r.top + r.height/2;
+    clearDropLines();
+    el.classList.add(after ? "drop-after" : "drop-before");
+  });
+  el.addEventListener("drop", (e)=>{
+    if(!draggedId || draggedId === el.dataset.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const after = el.classList.contains("drop-after");
+    clearDropLines();
+    document.querySelectorAll(".drag-over").forEach(x=>x.classList.remove("drag-over"));
+    reorderIssue(draggedId, estado, el.dataset.id, after);
+  });
+}
+
+async function reorderIssue(id, estado, targetId, after){
+  const moving = issues.find(i=>i.id===id);
+  if(!moving) return;
+  const list = sortIssues(issues.filter(i=>i.estado===estado && i.id!==id));
+  let pos = list.findIndex(i=>i.id===targetId);
+  if(pos < 0) pos = list.length;
+  else if(after) pos++;
+  const prev = list[pos-1], next = list[pos];
+  const prioridad = prev ? (prev.prioridad ?? null) : next ? (next.prioridad ?? null) : (moving.prioridad ?? null);
+  list.splice(pos, 0, moving);
+
+  const now = new Date().toISOString();
+  const changed = [];
+  list.forEach((iss, idx)=>{
+    const isMoving = iss.id === id;
+    if(!isMoving && iss.orden === idx) return;
+    const k = issues.findIndex(i=>i.id===iss.id);
+    issues[k] = { ...issues[k], orden: idx, ...(isMoving ? { estado, prioridad, updated_at: now } : {}) };
+    changed.push(issues[k]);
+  });
+  render();
+  await Promise.all(changed.map(upsertIssue));
 }
 
 function addDropHandlers(hitArea, estado, highlightEl){
   const target = highlightEl || hitArea;
   hitArea.addEventListener("dragover", (e)=>{
     e.preventDefault();
+    if(!e.target.closest("[data-id]")) clearDropLines();
     e.dataTransfer.dropEffect = "move";
     target.classList.add("drag-over");
   });
@@ -458,7 +557,7 @@ function addDropHandlers(hitArea, estado, highlightEl){
 async function moveIssueToEstado(id, estado){
   const idx = issues.findIndex(i=>i.id===id);
   if(idx<0 || issues[idx].estado === estado) return;
-  issues[idx] = { ...issues[idx], estado, updated_at: new Date().toISOString() };
+  issues[idx] = { ...issues[idx], estado, orden: Date.now(), updated_at: new Date().toISOString() };
   render();
   await upsertIssue(issues[idx]);
 }
@@ -472,7 +571,7 @@ function render(){
     lista.innerHTML = '<div class="empty">Sin issues todavía. Creá el primero con "+ Nuevo issue".</div>';
   } else {
     ESTADOS.forEach(estado=>{
-      const items = sortByPersona(issues.filter(i=>i.estado===estado));
+      const items = sortIssues(issues.filter(i=>i.estado===estado));
       const group = document.createElement("div");
       group.className = "estado-group";
 
@@ -492,8 +591,10 @@ function render(){
         row.onclick = ()=>openModal(iss.id);
         row.addEventListener("dragstart", onDragStart);
         row.addEventListener("dragend", onDragEnd);
+        addItemDropHandlers(row, estado);
         row.innerHTML = `
           <input type="checkbox" class="issue-check" ${selectedIds.has(iss.id) ? "checked" : ""}>
+          ${prioridadIcon(iss.prioridad)}
           <span class="badge" style="background:${ESTADO_COLOR[iss.estado]||'#999'}">${iss.estado}</span>
           <span class="issue-title">${iss.titulo}${iss.longterm ? ' <small>Long-term</small>' : ''}</span>
           ${subissueProgress(iss)}
@@ -517,7 +618,7 @@ function render(){
   ESTADOS.forEach(estado=>{
     const col = document.createElement("div");
     col.className = "kanban-col";
-    const items = sortByPersona(issues.filter(i=>i.estado===estado));
+    const items = sortIssues(issues.filter(i=>i.estado===estado));
     const h3 = document.createElement("h3");
     h3.innerHTML = `${estado} <span>${items.length}</span>`;
     col.appendChild(h3);
@@ -531,7 +632,8 @@ function render(){
       card.onclick = ()=>openModal(iss.id);
       card.addEventListener("dragstart", onDragStart);
       card.addEventListener("dragend", onDragEnd);
-      card.innerHTML = `${iss.titulo} ${subissueProgress(iss)}<div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
+      addItemDropHandlers(card, estado);
+      card.innerHTML = `<div class="k-head">${prioridadIcon(iss.prioridad)}<span>${iss.titulo} ${subissueProgress(iss)}</span></div><div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
       cards.appendChild(card);
     });
     col.appendChild(cards);
@@ -626,6 +728,8 @@ async function bulkMerge(){
     links:       [...new Set(selected.flatMap(i=>i.links||[]))],
     longterm:    selected.some(i=>i.longterm),
     estado:      selected[0].estado,
+    prioridad:   sortIssues(selected)[0].prioridad ?? null,
+    orden:       selected[0].orden ?? Date.now(),
     asignados:   [...new Set(selected.flatMap(i=>i.asignados||[]))],
     created_at:  now,
     updated_at:  now
@@ -713,10 +817,12 @@ function openModal(id){
   document.getElementById("btnEliminar").style.display = issue ? "inline-block" : "none";
 
   formEstado    = issue ? issue.estado : "Backlog";
+  formPrioridad = issue ? (issue.prioridad ?? null) : "medium";
   formAsignados = issue ? [...(issue.asignados||[])] : (currentPersona ? [currentPersona] : []);
   formSubissues = issue ? (issue.subissues||[]).map(s=>({...s})) : [];
 
   renderEstadoOpts();
+  renderPrioridadOpts();
   renderAsignadoOpts();
   renderSubissues();
   document.getElementById("overlay").classList.add("open");
@@ -731,6 +837,19 @@ function renderEstadoOpts(){
     b.className = "opt-btn" + (formEstado===e ? " sel" : "");
     b.textContent = e;
     b.onclick = ()=>{ formEstado = e; renderEstadoOpts(); };
+    el.appendChild(b);
+  });
+}
+
+function renderPrioridadOpts(){
+  const el = document.getElementById("prioridadOpts");
+  el.innerHTML = "";
+  PRIORIDADES.forEach(p=>{
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "opt-btn" + (formPrioridad===p.id ? " sel" : "");
+    b.innerHTML = `${prioridadIcon(p.id)}${p.nombre}`;
+    b.onclick = ()=>{ formPrioridad = formPrioridad===p.id ? null : p.id; renderPrioridadOpts(); };
     el.appendChild(b);
   });
 }
@@ -867,6 +986,7 @@ async function saveIssue(){
   const links       = document.getElementById("fLinks").value.split("\n").map(l=>l.trim()).filter(Boolean);
   const longterm    = document.getElementById("fLongterm").checked;
   const now         = new Date().toISOString();
+  const existing    = editingId ? issues.find(i=>i.id===editingId) : null;
 
   const issue = {
     id:          editingId || ("iss_" + Date.now()),
@@ -875,6 +995,8 @@ async function saveIssue(){
     links,
     longterm,
     estado:      formEstado,
+    prioridad:   formPrioridad,
+    orden:       existing && existing.orden != null ? existing.orden : Date.now(),
     asignados:   [...formAsignados],
     subissues:   formSubissues.map(s=>({...s})),
     updated_at:  now,
