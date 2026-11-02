@@ -220,6 +220,29 @@
     border-radius:10px;padding:1px 7px;flex:none;
   }
 
+  #overlay .modal{max-width:940px;}
+  #personaOverlay{z-index:60;}
+  .issue-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:26px;}
+  .issue-side{border-left:1px solid var(--line);padding-left:26px;display:flex;flex-direction:column;min-width:0;}
+  #fDesc{min-height:150px;}
+  @media (max-width:780px){
+    .issue-layout{grid-template-columns:1fr;}
+    .issue-side{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:16px;}
+  }
+  .comentarios-list{flex:1;overflow-y:auto;max-height:50vh;margin-bottom:10px;}
+  .comentario{padding:10px 0;border-bottom:1px solid var(--line);}
+  .comentario:last-child{border-bottom:none;}
+  .comentario-head{display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:5px;}
+  .comentario-head b{color:var(--ink);}
+  .comentario-fecha{color:var(--muted);}
+  .comentario-texto{font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
+  .comentario-head .subissue-del{margin-left:auto;}
+  .comentario-form textarea{
+    width:100%;min-height:70px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;
+    font-size:13px;font-family:inherit;resize:vertical;
+  }
+  .comentario-form-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--muted);}
+
   .lt-row{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;}
   .modal-actions{display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:8px;}
   .btn{padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--line);background:#fff;}
@@ -294,6 +317,8 @@
 <div class="overlay" id="overlay">
   <div class="modal">
     <h3 id="modalTitle">Nuevo issue</h3>
+    <div class="issue-layout">
+    <div class="issue-main">
     <div class="field">
       <label>Título</label>
       <input type="text" id="fTitulo" placeholder="Título del issue">
@@ -325,6 +350,21 @@
     <div class="lt-row">
       <input type="checkbox" id="fLongterm">
       <label for="fLongterm">Long-term (ver más adelante)</label>
+    </div>
+    </div>
+    <div class="issue-side">
+      <div class="field" style="flex:1;display:flex;flex-direction:column;margin-bottom:0">
+        <label>Comentarios</label>
+        <div class="comentarios-list" id="comentariosList"></div>
+        <div class="comentario-form" id="comentarioForm">
+          <textarea id="fComentario" placeholder="Escribí un comentario..." onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){event.preventDefault();addComentario();}"></textarea>
+          <div class="comentario-form-foot">
+            <span id="comentarioFirma"></span>
+            <button type="button" class="btn primary" id="btnComentar" onclick="addComentario()">Comentar</button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn danger" id="btnEliminar" onclick="deleteIssue()" style="display:none">Eliminar</button>
@@ -391,7 +431,8 @@ async function fetchIssues(){
 }
 
 async function upsertIssue(issue){
-  const { error } = await db.from('issues').upsert(issue, { onConflict: 'id' });
+  const { comentarios, ...row } = issue;   // los comentarios se guardan aparte (updateComentarios)
+  const { error } = await db.from('issues').upsert(row, { onConflict: 'id' });
   if(error) console.error('upsertIssue', error);
 }
 
@@ -420,6 +461,11 @@ function assigneeChips(ids, size){
     const s = size||22;
     return `<span class="chip-sm" style="background:${p.color};width:${s}px;height:${s}px;font-size:${s*0.45}px" title="${p.nombre}">${initials(p.nombre)}</span>`;
   }).join("");
+}
+
+function comentariosCount(iss){
+  const n = (iss.comentarios || []).length;
+  return n ? `<span class="subissue-count" title="Comentarios">💬 ${n}</span>` : "";
 }
 
 function subissueProgress(iss){
@@ -594,6 +640,7 @@ function render(){
           <span class="badge" style="background:${ESTADO_COLOR[iss.estado]||'#999'}">${iss.estado}</span>
           <span class="issue-title">${iss.titulo}${iss.longterm ? ' <small>Long-term</small>' : ''}</span>
           ${subissueProgress(iss)}
+          ${comentariosCount(iss)}
           <span class="assignees">${assigneeChips(iss.asignados)}</span>
         `;
         const chk = row.querySelector(".issue-check");
@@ -629,7 +676,7 @@ function render(){
       card.addEventListener("dragstart", onDragStart);
       card.addEventListener("dragend", onDragEnd);
       addItemDropHandlers(card, estado);
-      card.innerHTML = `<div class="k-head">${prioridadIcon(iss.prioridad)}<span>${iss.titulo} ${subissueProgress(iss)}</span></div><div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
+      card.innerHTML = `<div class="k-head">${prioridadIcon(iss.prioridad)}<span>${iss.titulo} ${subissueProgress(iss)} ${comentariosCount(iss)}</span></div><div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
       cards.appendChild(card);
     });
     col.appendChild(cards);
@@ -726,6 +773,7 @@ async function bulkMerge(){
     estado:      selected[0].estado,
     orden:       Math.min(...selected.map(i=>i.orden ?? Date.now())) - 0.5,
     asignados:   [...new Set(selected.flatMap(i=>i.asignados||[]))],
+    comentarios: selected.flatMap(i=>i.comentarios||[]).sort((a,b)=>a.fecha.localeCompare(b.fecha)),
     created_at:  now,
     updated_at:  now
   };
@@ -736,6 +784,7 @@ async function bulkMerge(){
 
   await Promise.all(ids.map(id=>removeIssue(id)));
   await syncPrioridades([merged.id]);
+  if(merged.comentarios.length) await db.from('issues').update({ comentarios: merged.comentarios }).eq('id', merged.id);
 }
 
 // ── Agenda ────────────────────────────────────────────────────────────────────
@@ -784,6 +833,7 @@ function renderQuienSos(){
       document.getElementById("sosLabel").textContent = p.nombre;
       renderQuienSos();
       closePersonaPicker();
+      if(document.getElementById("overlay").classList.contains("open")) renderComentarios();
     };
     el.appendChild(chip);
   });
@@ -817,6 +867,8 @@ function openModal(id){
   renderEstadoOpts();
   renderAsignadoOpts();
   renderSubissues();
+  document.getElementById("fComentario").value = "";
+  renderComentarios();
   document.getElementById("overlay").classList.add("open");
 }
 
@@ -939,6 +991,83 @@ function renderSubissues(){
   });
 }
 
+// ── Comentarios ───────────────────────────────────────────────────────────────
+
+function escapeHtml(t){
+  return String(t).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function formatFecha(iso){
+  return new Date(iso).toLocaleString("es-AR", {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"});
+}
+
+function renderComentarios(){
+  const el   = document.getElementById("comentariosList");
+  const form = document.getElementById("comentarioForm");
+  if(!editingId){
+    el.innerHTML = '<div class="subissue-empty">Guardá el issue para poder comentar.</div>';
+    form.style.display = "none";
+    return;
+  }
+  form.style.display = "block";
+  const p = personaById(currentPersona);
+  document.getElementById("comentarioFirma").innerHTML = p ? `Comentás como <b>${p.nombre}</b>` : "Elegí quién sos para comentar";
+
+  const iss = issues.find(i=>i.id===editingId);
+  const list = (iss && iss.comentarios) || [];
+  if(list.length === 0){
+    el.innerHTML = '<div class="subissue-empty">Sin comentarios.</div>';
+    return;
+  }
+  el.innerHTML = list.map(c=>{
+    const autor = personaById(c.autor);
+    const del = c.autor === currentPersona
+      ? `<button type="button" class="subissue-del" title="Borrar comentario" onclick="deleteComentario('${c.id}')">×</button>` : "";
+    return `<div class="comentario">
+      <div class="comentario-head">${assigneeChips([c.autor], 20)}<b>${autor ? autor.nombre : escapeHtml(c.autor)}</b><span class="comentario-fecha">${formatFecha(c.fecha)}</span>${del}</div>
+      <div class="comentario-texto">${escapeHtml(c.texto)}</div>
+    </div>`;
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+// Lee los comentarios actuales de la base antes de escribir, para no pisar los de otra persona
+async function updateComentarios(id, fn){
+  const { data, error } = await db.from('issues').select('comentarios').eq('id', id).single();
+  if(error){ console.error('fetchComentarios', error); alert("No se pudo guardar el comentario."); return false; }
+  const comentarios = fn(data.comentarios || []);
+  const { error: errUpd } = await db.from('issues').update({ comentarios }).eq('id', id);
+  if(errUpd){ console.error('updateComentarios', errUpd); alert("No se pudo guardar el comentario."); return false; }
+  const k = issues.findIndex(i=>i.id===id);
+  if(k>=0) issues[k] = { ...issues[k], comentarios };
+  if(editingId === id) renderComentarios();
+  render();
+  return true;
+}
+
+async function addComentario(){
+  const input = document.getElementById("fComentario");
+  const texto = input.value.trim();
+  if(!texto || !editingId) return;
+  if(!currentPersona){ openPersonaPicker(); return; }
+  const btn = document.getElementById("btnComentar");
+  btn.disabled = true;
+  const c = {
+    id: "com_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+    autor: currentPersona,
+    texto,
+    fecha: new Date().toISOString()
+  };
+  const ok = await updateComentarios(editingId, list=>[...list, c]);
+  btn.disabled = false;
+  if(ok) input.value = "";
+}
+
+async function deleteComentario(cid){
+  if(!editingId || !confirm("¿Borrar este comentario?")) return;
+  await updateComentarios(editingId, list=>list.filter(c=>c.id!==cid));
+}
+
 function addSubissue(){
   const input = document.getElementById("fSubissueTitulo");
   const titulo = input.value.trim();
@@ -986,7 +1115,7 @@ async function saveIssue(){
 
   if(editingId){
     const idx = issues.findIndex(i=>i.id===editingId);
-    if(idx>=0) issues[idx] = issue;
+    if(idx>=0) issues[idx] = { ...issue, comentarios: issues[idx].comentarios || [] };
   } else {
     issues.push(issue);
   }
