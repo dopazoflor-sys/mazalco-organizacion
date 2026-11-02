@@ -243,6 +243,19 @@
   }
   .comentario-form-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--muted);}
 
+  .issue-updated{font-size:12px;color:var(--muted);flex:none;min-width:64px;text-align:right;white-space:nowrap;}
+  .k-updated{font-size:11px;color:var(--muted);font-weight:400;margin-left:auto;}
+  .kanban-card .k-assignees{align-items:center;}
+
+  .filtros{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:12px;}
+  .filtros-label{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-right:4px;}
+  .filtro-chip{
+    display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:16px;
+    border:1px solid var(--line);background:var(--card);font-size:12px;font-weight:600;cursor:pointer;color:var(--ink);
+  }
+  .filtro-chip .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+  .filtro-chip.sel{border-color:var(--brand);background:var(--brand);color:#fff;}
+
   .lt-row{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;}
   .modal-actions{display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:8px;}
   .btn{padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--line);background:#fff;}
@@ -272,6 +285,8 @@
         <button class="tab-btn" id="tabKanban" onclick="setView('kanban')">Kanban</button>
       </div>
     </div>
+
+    <div class="filtros" id="filtros"></div>
 
     <div class="bulk-bar" id="bulkBar" style="display:none">
       <label class="bulk-all">
@@ -418,6 +433,7 @@ let formAsignados = [];
 let formSubissues = [];
 let currentView = "lista";
 let selectedIds = new Set();
+let filtroPersonas = new Set();   // vacío = todos; "sin" = sin asignar
 
 function personaById(id){ return PERSONAS.find(p=>p.id===id); }
 function initials(nombre){ return nombre.slice(0,2).toUpperCase(); }
@@ -461,6 +477,62 @@ function assigneeChips(ids, size){
     const s = size||22;
     return `<span class="chip-sm" style="background:${p.color};width:${s}px;height:${s}px;font-size:${s*0.45}px" title="${p.nombre}">${initials(p.nombre)}</span>`;
   }).join("");
+}
+
+function tiempoRelativo(iso){
+  if(!iso) return "";
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if(min < 1)  return "recién";
+  if(min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  if(h < 24)   return `hace ${h} h`;
+  const d = Math.round(h / 24);
+  if(d === 1)  return "ayer";
+  if(d < 7)    return `hace ${d} d`;
+  return new Date(iso).toLocaleDateString("es-AR", {day:"numeric", month:"short"});
+}
+
+function lastUpdated(iss, cls){
+  if(!iss.updated_at) return "";
+  const full = new Date(iss.updated_at).toLocaleString("es-AR", {day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit"});
+  return `<span class="${cls}" title="Última actualización: ${full}">${tiempoRelativo(iss.updated_at)}</span>`;
+}
+
+function pasaFiltro(iss){
+  if(filtroPersonas.size === 0) return true;
+  const asig = iss.asignados || [];
+  if(filtroPersonas.has("sin") && asig.length === 0) return true;
+  return asig.some(id=>filtroPersonas.has(id));
+}
+
+function visibleIssues(){
+  return issues.filter(pasaFiltro);
+}
+
+function renderFiltros(){
+  const el = document.getElementById("filtros");
+  const opciones = [
+    {id:null, nombre:"Todos"},
+    ...PERSONAS,
+    {id:"sin", nombre:"Sin asignar", color:"var(--backlog)"}
+  ];
+  el.innerHTML = '<span class="filtros-label">Filtrar</span>';
+  opciones.forEach(o=>{
+    const b = document.createElement("button");
+    b.type = "button";
+    const sel = o.id === null ? filtroPersonas.size === 0 : filtroPersonas.has(o.id);
+    b.className = "filtro-chip" + (sel ? " sel" : "");
+    b.innerHTML = (o.color ? `<span class="dot" style="background:${o.color}"></span>` : "") + o.nombre;
+    b.onclick = ()=>{
+      if(o.id === null) filtroPersonas.clear();
+      else if(filtroPersonas.has(o.id)) filtroPersonas.delete(o.id);
+      else filtroPersonas.add(o.id);
+      try{ localStorage.setItem("filtro-personas", JSON.stringify([...filtroPersonas])); }catch(e){}
+      selectedIds.clear();
+      render();
+    };
+    el.appendChild(b);
+  });
 }
 
 function comentariosCount(iss){
@@ -572,7 +644,8 @@ async function reorderIssue(id, estado, targetId, after){
   const now = new Date().toISOString();
   list.forEach((iss, idx)=>{
     const k = issues.findIndex(i=>i.id===iss.id);
-    issues[k] = { ...issues[k], orden: idx, ...(iss.id === id ? { estado, updated_at: now } : {}) };
+    const cambiaEstado = iss.id === id && iss.estado !== estado;   // subir/bajar no cuenta como update
+    issues[k] = { ...issues[k], orden: idx, ...(iss.id === id ? { estado } : {}), ...(cambiaEstado ? { updated_at: now } : {}) };
   });
   await syncPrioridades(list.map(i=>i.id));
 }
@@ -609,11 +682,14 @@ function render(){
   const kanban = document.getElementById("kanbanView");
 
   lista.innerHTML = "";
+  renderFiltros();
+  const visibles = visibleIssues();
+
   if(issues.length === 0){
     lista.innerHTML = '<div class="empty">Sin issues todavía. Creá el primero con "+ Nuevo issue".</div>';
   } else {
     ESTADOS.forEach(estado=>{
-      const items = sortIssues(issues.filter(i=>i.estado===estado));
+      const items = sortIssues(visibles.filter(i=>i.estado===estado));
       const group = document.createElement("div");
       group.className = "estado-group";
 
@@ -642,6 +718,7 @@ function render(){
           ${subissueProgress(iss)}
           ${comentariosCount(iss)}
           <span class="assignees">${assigneeChips(iss.asignados)}</span>
+          ${lastUpdated(iss, "issue-updated")}
         `;
         const chk = row.querySelector(".issue-check");
         chk.onclick = (e)=>e.stopPropagation();
@@ -661,7 +738,7 @@ function render(){
   ESTADOS.forEach(estado=>{
     const col = document.createElement("div");
     col.className = "kanban-col";
-    const items = sortIssues(issues.filter(i=>i.estado===estado));
+    const items = sortIssues(visibles.filter(i=>i.estado===estado));
     const h3 = document.createElement("h3");
     h3.innerHTML = `${estado} <span>${items.length}</span>`;
     col.appendChild(h3);
@@ -676,7 +753,7 @@ function render(){
       card.addEventListener("dragstart", onDragStart);
       card.addEventListener("dragend", onDragEnd);
       addItemDropHandlers(card, estado);
-      card.innerHTML = `<div class="k-head">${prioridadIcon(iss.prioridad)}<span>${iss.titulo} ${subissueProgress(iss)} ${comentariosCount(iss)}</span></div><div class="k-assignees">${assigneeChips(iss.asignados,18)}</div>`;
+      card.innerHTML = `<div class="k-head">${prioridadIcon(iss.prioridad)}<span>${iss.titulo} ${subissueProgress(iss)} ${comentariosCount(iss)}</span></div><div class="k-assignees">${assigneeChips(iss.asignados,18)}${lastUpdated(iss, "k-updated")}</div>`;
       cards.appendChild(card);
     });
     col.appendChild(cards);
@@ -705,21 +782,22 @@ function toggleSelect(id, checked){
 }
 
 function toggleSelectAll(checked){
-  if(checked) issues.forEach(i=>selectedIds.add(i.id));
+  if(checked) visibleIssues().forEach(i=>selectedIds.add(i.id));
   else selectedIds.clear();
   render();
 }
 
 function renderBulkBar(){
   const bar = document.getElementById("bulkBar");
-  if(currentView !== "lista" || issues.length === 0){
+  const visibles = visibleIssues();
+  if(currentView !== "lista" || visibles.length === 0){
     bar.style.display = "none";
     return;
   }
   bar.style.display = "flex";
 
-  const total    = issues.length;
-  const selected = [...selectedIds].filter(id=>issues.some(i=>i.id===id));
+  const total    = visibles.length;
+  const selected = [...selectedIds].filter(id=>visibles.some(i=>i.id===id));
   if(selected.length !== selectedIds.size){
     selectedIds = new Set(selected);
   }
@@ -1036,10 +1114,11 @@ async function updateComentarios(id, fn){
   const { data, error } = await db.from('issues').select('comentarios').eq('id', id).single();
   if(error){ console.error('fetchComentarios', error); alert("No se pudo guardar el comentario."); return false; }
   const comentarios = fn(data.comentarios || []);
-  const { error: errUpd } = await db.from('issues').update({ comentarios }).eq('id', id);
+  const updated_at = new Date().toISOString();
+  const { error: errUpd } = await db.from('issues').update({ comentarios, updated_at }).eq('id', id);
   if(errUpd){ console.error('updateComentarios', errUpd); alert("No se pudo guardar el comentario."); return false; }
   const k = issues.findIndex(i=>i.id===id);
-  if(k>=0) issues[k] = { ...issues[k], comentarios };
+  if(k>=0) issues[k] = { ...issues[k], comentarios, updated_at };
   if(editingId === id) renderComentarios();
   render();
   return true;
@@ -1111,6 +1190,12 @@ async function saveIssue(){
     ...(editingId ? {} : { created_at: now })
   };
 
+  if(existing){
+    const campos = ["titulo","descripcion","links","longterm","estado","asignados","subissues"];
+    const cambio = campos.some(c=>JSON.stringify(issue[c] ?? null) !== JSON.stringify(existing[c] ?? null));
+    if(!cambio) issue.updated_at = existing.updated_at;
+  }
+
   await upsertIssue(issue);
 
   if(editingId){
@@ -1138,6 +1223,7 @@ async function deleteIssue(){
 async function init(){
   issues = await fetchIssues();
 
+  try{ filtroPersonas = new Set(JSON.parse(localStorage.getItem("filtro-personas") || "[]")); }catch(e){}
   currentPersona = localStorage.getItem("quien-sos") || null;
   renderQuienSos();
   if(currentPersona){
