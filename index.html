@@ -128,10 +128,6 @@
   .prio-urgent{background:var(--urgent);color:#fff;border-radius:4px;font-size:11px;font-weight:800;line-height:1;}
   .kanban-card .k-head{display:flex;align-items:flex-start;gap:7px;}
   .kanban-card .k-head .prio{margin-top:1px;}
-  .prio-opts{display:flex;flex-wrap:wrap;gap:6px;}
-  .prio-opts .opt-btn{display:inline-flex;align-items:center;gap:6px;}
-  .prio-opts .opt-btn.sel .prio{color:#fff;}
-  .prio-opts .opt-btn.sel .prio-urgent{box-shadow:0 0 0 1px #fff;}
 
   .header-right{display:flex;align-items:center;gap:10px;}
   .badge-btn{
@@ -315,10 +311,6 @@
       <div class="estado-opts" id="estadoOpts"></div>
     </div>
     <div class="field">
-      <label>Prioridad</label>
-      <div class="prio-opts" id="prioridadOpts"></div>
-    </div>
-    <div class="field">
       <label>Asignado</label>
       <div class="asignado-opts" id="asignadoOpts"></div>
     </div>
@@ -383,7 +375,6 @@ let currentPersona = null;
 let editingId = null;
 let formEstado = "Backlog";
 let formAsignados = [];
-let formPrioridad = null;
 let formSubissues = [];
 let currentView = "lista";
 let selectedIds = new Set();
@@ -438,11 +429,6 @@ function subissueProgress(iss){
   return `<span class="subissue-count" title="Subissues">${done}/${subs.length}</span>`;
 }
 
-function prioridadRank(p){
-  const idx = PRIORIDADES.findIndex(x=>x.id===p);
-  return idx === -1 ? PRIORIDADES.length : idx;
-}
-
 function prioridadIcon(p){
   const pr = PRIORIDADES.find(x=>x.id===p);
   if(p === "urgent") return `<span class="prio prio-urgent" title="Urgent">!</span>`;
@@ -459,14 +445,32 @@ function prioridadIcon(p){
   return `<span class="prio" title="${pr.nombre}"><svg width="14" height="14" viewBox="0 0 14 14">${bars}</svg></span>`;
 }
 
-// Orden dentro de cada estado: prioridad primero, después el orden manual (drag & drop)
+// Orden manual dentro de cada estado (drag & drop)
 function sortIssues(items){
   const big = Number.MAX_SAFE_INTEGER;
   return [...items].sort((a,b)=>
-    prioridadRank(a.prioridad) - prioridadRank(b.prioridad) ||
     (a.orden ?? big) - (b.orden ?? big) ||
     String(a.created_at||"").localeCompare(String(b.created_at||""))
   );
+}
+
+// La prioridad sale de la posición: cada estado se divide en cuartos (Urgent, High, Medium, Low).
+// Renumera el orden, recalcula prioridades, renderiza y guarda lo que cambió (más los forceIds).
+async function syncPrioridades(forceIds = []){
+  const changed = new Map();
+  ESTADOS.forEach(estado=>{
+    const items = sortIssues(issues.filter(i=>i.estado===estado));
+    const n = items.length;
+    items.forEach((iss, idx)=>{
+      const prioridad = PRIORIDADES[Math.floor(idx * PRIORIDADES.length / n)].id;
+      if(iss.orden === idx && iss.prioridad === prioridad && !forceIds.includes(iss.id)) return;
+      const k = issues.findIndex(i=>i.id===iss.id);
+      issues[k] = { ...issues[k], orden: idx, prioridad };
+      changed.set(iss.id, issues[k]);
+    });
+  });
+  render();
+  await Promise.all([...changed.values()].map(upsertIssue));
 }
 
 let draggedId = null;
@@ -489,7 +493,7 @@ function clearDropLines(){
   document.querySelectorAll(".drop-before,.drop-after").forEach(el=>el.classList.remove("drop-before","drop-after"));
 }
 
-// Soltar sobre otro issue: lo ubica antes/después de ese y toma su prioridad
+// Soltar sobre otro issue: lo ubica antes/después de ese
 function addItemDropHandlers(el, estado){
   el.addEventListener("dragover", (e)=>{
     if(!draggedId || draggedId === el.dataset.id) return;
@@ -517,21 +521,14 @@ async function reorderIssue(id, estado, targetId, after){
   let pos = list.findIndex(i=>i.id===targetId);
   if(pos < 0) pos = list.length;
   else if(after) pos++;
-  const prev = list[pos-1], next = list[pos];
-  const prioridad = prev ? (prev.prioridad ?? null) : next ? (next.prioridad ?? null) : (moving.prioridad ?? null);
   list.splice(pos, 0, moving);
 
   const now = new Date().toISOString();
-  const changed = [];
   list.forEach((iss, idx)=>{
-    const isMoving = iss.id === id;
-    if(!isMoving && iss.orden === idx) return;
     const k = issues.findIndex(i=>i.id===iss.id);
-    issues[k] = { ...issues[k], orden: idx, ...(isMoving ? { estado, prioridad, updated_at: now } : {}) };
-    changed.push(issues[k]);
+    issues[k] = { ...issues[k], orden: idx, ...(iss.id === id ? { estado, updated_at: now } : {}) };
   });
-  render();
-  await Promise.all(changed.map(upsertIssue));
+  await syncPrioridades(list.map(i=>i.id));
 }
 
 function addDropHandlers(hitArea, estado, highlightEl){
@@ -558,8 +555,7 @@ async function moveIssueToEstado(id, estado){
   const idx = issues.findIndex(i=>i.id===id);
   if(idx<0 || issues[idx].estado === estado) return;
   issues[idx] = { ...issues[idx], estado, orden: Date.now(), updated_at: new Date().toISOString() };
-  render();
-  await upsertIssue(issues[idx]);
+  await syncPrioridades([id]);
 }
 
 function render(){
@@ -711,8 +707,8 @@ async function bulkDelete(){
   if(!confirm(`¿Eliminar ${ids.length} issue${ids.length>1?"s":""}?`)) return;
   selectedIds.clear();
   issues = issues.filter(i=>!ids.includes(i.id));
-  render();
   await Promise.all(ids.map(id=>removeIssue(id)));
+  await syncPrioridades();
 }
 
 async function bulkMerge(){
@@ -728,8 +724,7 @@ async function bulkMerge(){
     links:       [...new Set(selected.flatMap(i=>i.links||[]))],
     longterm:    selected.some(i=>i.longterm),
     estado:      selected[0].estado,
-    prioridad:   sortIssues(selected)[0].prioridad ?? null,
-    orden:       selected[0].orden ?? Date.now(),
+    orden:       Math.min(...selected.map(i=>i.orden ?? Date.now())) - 0.5,
     asignados:   [...new Set(selected.flatMap(i=>i.asignados||[]))],
     created_at:  now,
     updated_at:  now
@@ -738,10 +733,9 @@ async function bulkMerge(){
   selectedIds.clear();
   issues = issues.filter(i=>!ids.includes(i.id));
   issues.push(merged);
-  render();
 
   await Promise.all(ids.map(id=>removeIssue(id)));
-  await upsertIssue(merged);
+  await syncPrioridades([merged.id]);
 }
 
 // ── Agenda ────────────────────────────────────────────────────────────────────
@@ -817,12 +811,10 @@ function openModal(id){
   document.getElementById("btnEliminar").style.display = issue ? "inline-block" : "none";
 
   formEstado    = issue ? issue.estado : "Backlog";
-  formPrioridad = issue ? (issue.prioridad ?? null) : "medium";
   formAsignados = issue ? [...(issue.asignados||[])] : (currentPersona ? [currentPersona] : []);
   formSubissues = issue ? (issue.subissues||[]).map(s=>({...s})) : [];
 
   renderEstadoOpts();
-  renderPrioridadOpts();
   renderAsignadoOpts();
   renderSubissues();
   document.getElementById("overlay").classList.add("open");
@@ -837,19 +829,6 @@ function renderEstadoOpts(){
     b.className = "opt-btn" + (formEstado===e ? " sel" : "");
     b.textContent = e;
     b.onclick = ()=>{ formEstado = e; renderEstadoOpts(); };
-    el.appendChild(b);
-  });
-}
-
-function renderPrioridadOpts(){
-  const el = document.getElementById("prioridadOpts");
-  el.innerHTML = "";
-  PRIORIDADES.forEach(p=>{
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "opt-btn" + (formPrioridad===p.id ? " sel" : "");
-    b.innerHTML = `${prioridadIcon(p.id)}${p.nombre}`;
-    b.onclick = ()=>{ formPrioridad = formPrioridad===p.id ? null : p.id; renderPrioridadOpts(); };
     el.appendChild(b);
   });
 }
@@ -995,7 +974,7 @@ async function saveIssue(){
     links,
     longterm,
     estado:      formEstado,
-    prioridad:   formPrioridad,
+    prioridad:   existing ? (existing.prioridad ?? null) : null,
     orden:       existing && existing.orden != null ? existing.orden : Date.now(),
     asignados:   [...formAsignados],
     subissues:   formSubissues.map(s=>({...s})),
@@ -1013,7 +992,7 @@ async function saveIssue(){
   }
 
   closeModal();
-  render();
+  await syncPrioridades();
 }
 
 async function deleteIssue(){
@@ -1022,7 +1001,7 @@ async function deleteIssue(){
   issues = issues.filter(i=>i.id!==editingId);
   selectedIds.delete(editingId);
   closeModal();
-  render();
+  await syncPrioridades();
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1050,7 +1029,7 @@ async function init(){
     renderAgenda(AGENDA_DEFAULT);
   }
 
-  render();
+  await syncPrioridades();
 }
 
 init();
